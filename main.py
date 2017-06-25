@@ -94,6 +94,7 @@ def send(bot, update):
   receiver.update_balance()
   reply("You've sent {} to @{}! You're new balance is {}.".format(amount,
     receiver.username, user.balance))
+  bot.sendMessage(receiver.chat_id, "You just received {} from @{}".format(amount, user.username))
 
 
 def request(bot, update):
@@ -129,8 +130,18 @@ def transactions(bot, update):
 
   transactions = user.get_transactions()
   for t in transactions:
-    from_ = t.sender.name if t.sender else t.gateway_details.provider
-    lines.append('- {} from {}'.format(t.amount, escape_markdown(from_)))
+    gain = False
+    if t.receiver == user:
+      gain = True
+      if not t.sender:
+        msg = 'from {}'.format(t.gateway_details.provider)
+      else:
+        msg = 'from @{}'.format(t.sender.username)
+    elif t.sender == user:
+      msg = 'to @{}'.format(t.receiver.username)
+
+    msg += ' ({})'.format(t.date.strftime('%Y-%m-%d %H:%M'))
+    lines.append('*{}* '.format(t.amount) + escape_markdown(msg))
 
   if not transactions:
     lines.append('*No transactions*')
@@ -178,7 +189,7 @@ def main():
 
   updater = Updater(config['telegramApiToken'])
   updater.dispatcher.add_handler(CommandHandler('start', start))
-  updater.dispatcher.add_handler(CommandHandler('hekp', help))
+  updater.dispatcher.add_handler(CommandHandler('help', help))
   updater.dispatcher.add_handler(CommandHandler('send', send))
   updater.dispatcher.add_handler(CommandHandler('request', request))
   updater.dispatcher.add_handler(CommandHandler('balance', balance))
