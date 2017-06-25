@@ -77,7 +77,7 @@ def send(bot, update):
     reply("We couldn't find @{}, maybe he/she is not using @KwittBot yet?"
       .format(parts[1][1:]))
     return
-  elif receiver == user:
+  elif receiver == user and not config['settings']['allowSendToSelf']:
     reply("You can't send money to yourself, fool!")
     return
 

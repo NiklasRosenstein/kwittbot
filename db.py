@@ -46,6 +46,10 @@ class User(Document):
 
     balance = Decimal()
     for t in self.get_transactions():
+      if t.receiver == t.sender:
+        # We use self-transactions for simple testing purposes.
+        # Skip them in the balance update.
+        continue
       if t.receiver == self:
         balance += t.amount
       elif t.sender == self:
@@ -114,6 +118,6 @@ class Transaction(Document):
           'of the transaction.')
     if self.sender and self.amount < 0:
       raise ValidationError('P2P transactions always require a positive amount.')
-    if self.sender == self.receiver:
+    if self.sender == self.receiver and not config['settings']['allowSendToSelf']:
       raise ValidationError('P2P transactions must have a different '
         'sender and receiver.')

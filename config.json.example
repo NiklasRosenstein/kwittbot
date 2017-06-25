@@ -1,4 +1,7 @@
 {
+  "settings": {
+    "allowSendToSelf": false
+  },
   "telegramApiToken": "<INSERT TOKEN HERE>",
   "mongoDb": {
     "db": "kwittbot",
