@@ -118,7 +118,7 @@ def balance(bot, update):
 
 
 def transactions(bot, update):
-  logging.info('/balance %s', update.message.from_user)
+  logging.info('/transactions %s', update.message.from_user)
 
   reply = update.message.reply_text
   user = db.User.objects(telegram_id=update.message.from_user.id).first()
@@ -126,7 +126,7 @@ def transactions(bot, update):
     reply("Sorry, who are you again?")
     return
 
-  lines = []
+  lines = ['Here is a list of your transactions:']
 
   transactions = user.get_transactions()
   for t in transactions:
@@ -135,6 +135,8 @@ def transactions(bot, update):
       gain = True
       if not t.sender:
         msg = 'from {}'.format(t.gateway_details.provider)
+      elif t.sender == t.receiver:
+        msg = 'to yourself'
       else:
         msg = 'from @{}'.format(t.sender.username)
     elif t.sender == user:
