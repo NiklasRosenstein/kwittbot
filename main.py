@@ -1,9 +1,12 @@
 
-import logging
-import signal
 from telegram.ext import Updater, MessageHandler, InlineQueryHandler, Filters
 from telegram import InputTextMessageContent, InlineQueryResultArticle
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+
+import logging
+import signal
+import config from './config.json'
+
 
 def message(bot, update):
   pass
@@ -29,7 +32,7 @@ def main():
   logging.basicConfig(format='[%(levelname)s - %(asctime)s]: %(message)s', level=logging.INFO)
   logging.info('Firing up KwittBot ...')
 
-  updater = Updater('383406996:AAF08E4KvFmu2yNjp2EAqWCzKYeupw5nT90')
+  updater = Updater(config['telegramApiToken'])
   updater.dispatcher.add_handler(MessageHandler(Filters.text, message))
   updater.dispatcher.add_handler(InlineQueryHandler(inline))
   updater.dispatcher.add_error_handler(error)
