@@ -67,6 +67,23 @@ class User(Document):
 
     return Transaction.objects(Q(receiver=self) | Q(sender=self))
 
+  def get_requests(self, target=None):
+    """
+    Returns a query of all requests that the user issues.
+    """
+
+    query = Request.objects(issuer=self)
+    if target is not None:
+      query = query.filter(target=target)
+    return query
+
+  def get_reverse_requests(self):
+    """
+    Returns a query of all requests that have been targeted to this user.
+    """
+
+    return Request.objects(target=self)
+
 
 class GatewayTransactionDetails(Document):
   """
@@ -108,6 +125,9 @@ class Transaction(Document):
   #: a payment gateway.
   gateway_details = ReferenceField('GatewayTransactionDetails', reverse_delete_rule=DENY)
 
+  #: A text description of the transaction.
+  description = StringField()
+
   def clean(self):
     if not self.date:
       self.date = datetime.now()
@@ -121,3 +141,32 @@ class Transaction(Document):
     if self.sender == self.receiver and not config['settings']['allowSendToSelf']:
       raise ValidationError('P2P transactions must have a different '
         'sender and receiver.')
+
+
+class Request(Document):
+  """
+  Represents a request for money from another user.
+  """
+
+  #: The amount of money being requested.
+  amount = DecimalField()
+
+  #: The date that the request was issued.
+  date = DateTimeField()
+
+  #: The user that issued the request.
+  issuer = ReferenceField('User', reverse_delete_rule=DENY)
+
+  #: The user that is requested to send money.
+  target = ReferenceField('User', reverse_delete_rule=DENY)
+
+  #: A message for the request.
+  description = ListField(StringField())
+
+  def clean(self):
+    if self.issuer == self.target and not config['settings']['allowSendToSelf']:
+      raise ValidationError('Requests must have a different issuer and target.')
+    if self.amount < 0:
+      raise ValidationError('Requests must have a positive amount.')
+    if not self.date:
+      self.date = datetime.now()

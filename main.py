@@ -63,7 +63,7 @@ def send(bot, update):
     return
 
   parts = update.message.text[5:].strip().split()
-  if len(parts) != 2 or not parts[1].startswith('@'):
+  if len(parts) < 2 or not parts[1].startswith('@'):
     reply('Invalid syntax')
     return
   try:
@@ -86,8 +86,9 @@ def send(bot, update):
     reply("You're balance is {}, you can not send {}.".format(user.balance, amount))
     return
 
+  description = ' '.join(parts[2:])
   transaction = db.Transaction(amount=amount, receiver=receiver, sender=user,
-    gateway_details=None)
+    gateway_details=None, description=description)
   transaction.save()
 
   user.update_balance()
@@ -98,7 +99,50 @@ def send(bot, update):
 
 
 def request(bot, update):
-  pass
+  logging.info('/request %s', update.message.from_user)
+
+  reply = update.message.reply_text
+  user = db.User.objects(telegram_id=update.message.from_user.id).first()
+  if not user:
+    reply("I don't know you.")
+    return
+
+  # FIXME: Pretty much the same as in send().
+  parts = update.message.text[8:].strip().split()
+  if len(parts) < 2 or not parts[1].startswith('@'):
+    reply('Invalid syntax')
+    return
+  try:
+    amount = db.Decimal(parts[0])
+  except db.decimal.InvalidOperation:
+    reply('Invalid amount')
+    return
+
+  target = db.User.objects(username__iexact=parts[1][1:]).first()
+  if not target:
+    reply("We couldn't find @{}, maybe he/she is not using @KwittBot yet?"
+      .format(parts[1][1:]))
+    return
+  elif target == user and not config['settings']['allowSendToSelf']:
+    reply("You can't request money from yourself, fool!")
+    return
+
+  description = ' '.join(parts[2:])
+  request = db.Request(issuer=user, target=target, amount=amount, description=[])
+  if description:
+    request.description.append(description)
+
+  request.save()
+
+  bot.sendMessage(target.chat_id, "@{} requested {} from you. You can use "
+    "`/settleup @{}` to pay them!".format(user.username, amount, user.username),
+    parse_mode=ParseMode.MARKDOWN)
+  if description:
+    bot.sendMessage(target.chat_id, "Their message: " + description)
+
+  reply("You're request has been saved and @{} was notified. They can "
+    "use the command `/settleup @{}` to pay you!".format(target.username, user.username),
+    parse_mode=ParseMode.MARKDOWN)
 
 
 def balance(bot, update):
