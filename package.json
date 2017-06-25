@@ -11,6 +11,7 @@
     "!require-import-syntax"
   ],
   "python-dependencies": {
+    "mongoengine": ">=0.11.0",
     "python-telegram-bot": ">=6.1.0"
   }
 }

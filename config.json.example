@@ -1,3 +1,10 @@
 {
-  "telegramApiToken": "<INSERT TOKEN HERE>"
+  "telegramApiToken": "<INSERT TOKEN HERE>",
+  "mongoDb": {
+    "db": "kwittbot",
+    "host": "",
+    "port": "",
+    "username": "",
+    "password": 27017
+  }
 }
