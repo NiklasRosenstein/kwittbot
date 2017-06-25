@@ -9,5 +9,8 @@
   },
   "extensions": [
     "!require-import-syntax"
-  ]
+  ],
+  "python-dependencies": {
+    "python-telegram-bot": ">=6.1.0"
+  }
 }
