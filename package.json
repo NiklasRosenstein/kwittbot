@@ -1,0 +1,13 @@
+{
+  "name": "kwittbot",
+  "version": "1.0.0",
+  "author": "Niklas Rosenstein <rosensteinniklas@gmail.com>",
+  "license": "MIT",
+  "main": "main.py",
+  "engines": {
+    "python": ">=3.5"
+  },
+  "extensions": [
+    "!require-import-syntax"
+  ]
+}
