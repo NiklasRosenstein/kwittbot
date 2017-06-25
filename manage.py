@@ -9,13 +9,22 @@ def main():
 
 
 @main.command()
-def drop():
+@click.option('--users', is_flag=True, help='Also drop users.')
+def drop(users):
   " Drop all database information. "
 
-  db.User.drop_collection()
+  if users:
+    print('Dropping User ...')
+    db.User.drop_collection()
+
+  print('Dropping GatewayTransactionDetails ...')
   db.GatewayTransactionDetails.drop_collection()
+
+  print('Dropping Transaction ...')
   db.Transaction.drop_collection()
-  print("All data dropped.")
+
+  print('Dropping Request ...')
+  db.Request.drop_collection()
 
 
 if require.main == module:
