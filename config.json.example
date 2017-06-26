@@ -6,8 +6,8 @@
   "mongoDb": {
     "db": "kwittbot",
     "host": "",
-    "port": "",
+    "port": 27017,
     "username": "",
-    "password": 27017
+    "password": ""
   }
 }
