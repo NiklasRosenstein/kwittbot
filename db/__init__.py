@@ -1,8 +1,10 @@
 
 from datetime import datetime
 from mongoengine import *
+import enum
 import decimal
-import config from './config.json'
+import config from '../config.json'
+import {EnumField} from './fields'
 
 db = connect(**config['mongoDb'])
 decimal_context = decimal.Context(prec=2)
@@ -148,6 +150,11 @@ class Request(Document):
   Represents a request for money from another user.
   """
 
+  class Modes(enum.Enum):
+    OPEN = 1
+    DENIED = 2
+    FULFILLED = 3
+
   #: The amount of money being requested.
   amount = DecimalField()
 
@@ -161,7 +168,10 @@ class Request(Document):
   target = ReferenceField('User', reverse_delete_rule=DENY)
 
   #: A message for the request.
-  description = ListField(StringField())
+  description = StringField()
+
+  #: Whether the request is still open, has been fulfilled or denied.
+  mode = EnumField(Modes)
 
   def clean(self):
     if self.issuer == self.target and not config['settings']['allowSendToSelf']:

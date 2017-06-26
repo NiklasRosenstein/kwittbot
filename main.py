@@ -1,228 +1,285 @@
 
 from telegram.ext import Updater, Filters
-from telegram.ext import CommandHandler, InlineQueryHandler, MessageHandler
+from telegram.ext import InlineQueryHandler, MessageHandler
 from telegram import ChatAction, ParseMode
 from textwrap import dedent
+from werkzeug.local import Local
 
 import logging
-import signal
-import re
+import types
 import config from './config.json'
 import db from './db'
+import handlers from './base/handler'
+import {LocalMiddleware} from './base/middleware'
+import {UserMiddleware, UpdateMiddleware} from './middleware'
+import {escape_markdown} from './utils'
+
+#: Global thread-local object that stores information about the current
+#: telegram update such as the current #db.User and the current #bot and
+#: #update so other functions can access it without passing the information
+#: to the function explicitly. These members are initialized with the
+#: #UserMiddleware and #UpdateMiddleware.
+g = Local()
 
 
-def escape_markdown(text):
-  """Helper function to escape telegram markup symbols"""
-  escape_chars = '\*_`\['
-  return re.sub(r'([%s])' % escape_chars, r'\\\1', text)
+def reply(*args, **kwargs):
+  """
+  Replies to the current chat. If a *chat_id* keyword parameter is specified,
+  that chat is used instead. Requires #g.bot and #g.update initialized using
+  the #UpdateMiddleware.
+  """
+
+  chat_id = kwargs.pop('chat_id', None)
+  if chat_id is None:
+    chat_id = g.update.effective_chat.id
+  g.bot.sendMessage(chat_id, *args, **kwargs)
 
 
-def start(bot, update):
-  logging.info('/start %s', update.message.from_user)
-
-  reply = update.message.reply_text
-  user = db.User.objects(telegram_id=update.message.from_user.id).first()
-  if not user:
-    reply("Hi {}, I am @KwittBot! Seems like this is your "
-      "first time here, so I'll quickly set up everything for you."
-      .format(update.message.from_user.name))
-    bot.send_chat_action(chat_id=update.message.chat.id, action=ChatAction.TYPING)
-    user = db.User.from_telegram_user(update.message.chat, update.message.from_user)
-    user.save()
-    reply("Done. You can now use @KwittBot!")
-    help(bot, update)
-  else:
-    reply("Seems like we've already got you covered. Type /help if you "
-      "don't know how to use @KwittBot!")
-    # TODO: Maybe update user details in case they changed?
+def chat_action(action, *args, **kwargs):
+  chat_id = kwargs.pop('chat_id', None)
+  if chat_id is None:
+    chat_id = g.update.effective_chat.id
+  g.bot.send_chat_action(chat_id, action, **kwargs)
 
 
-def help(bot, update):
-  logging.info('/help %s', update.message.from_user)
+class KwittbotCommandHandler(handlers.CommandHandler):
 
-  update.message.reply_text(dedent("""
-    Available commands:\n
-    /start -- Register to @KwittBot
-    /help -- Show this help
-    /send -- Send money to a friend
-    /request -- Request money from a friend
-    /balance -- Show your current balance
-    /transactions -- Show your transaction history.
-    /credit -- Charge your @KwittBot account
-    /debit -- Withdraw money from your @KwittBot account
-    """))
+  def handle_command(self, bot, update):
+    logging.info('/%s from @%s', update.message.command, update.effective_user.username)
+    super().handle_command(bot, update)
 
+  def _setup_account(self):
+    # Create a new user.
+    g.user = db.User.from_telegram_user(update.effective_chat, update.effective_user)
+    g.user.save()
 
-def send(bot, update):
-  logging.info('/send %s', update.message.from_user)
+    reply(
+      "Hi {}! Seems like this is your first time here. You can now use "
+      "@KwittBot to send money to your friends or request money from them.\n"
+      "Type /help when you're stuck!"
+      .format(update.effective_user.username)
+    )
 
-  reply = update.message.reply_text
-  user = db.User.objects(telegram_id=update.message.from_user.id).first()
-  if not user:
-    reply("I don't know you man.")
-    return
+  def _parse_send_or_request(self, cmd, text):
+    """
+    Parses the text sent to the /send or /request command which is of the
+    syntax: /COMMAND AMOUNT @USER [DESCRIPTION]
 
-  parts = update.message.text[5:].strip().split()
-  if len(parts) < 2 or not parts[1].startswith('@'):
-    reply('Invalid syntax')
-    return
-  try:
-    amount = db.Decimal(parts[0])
-  except db.decimal.InvalidOperation:
-    reply('Invalid amount')
-    return
+    # Return
+    (amount, target, description) or #False
+    """
 
-  receiver = db.User.objects(username__iexact=parts[1][1:]).first()
-  if not receiver:
-    reply("We couldn't find @{}, maybe he/she is not using @KwittBot yet?"
-      .format(parts[1][1:]))
-    return
-  elif receiver == user and not config['settings']['allowSendToSelf']:
-    reply("You can't send money to yourself, fool!")
-    return
+    parts = text.strip().split()
+    if len(parts) < 2 or not parts[1].startswith('@'):
+      reply('Syntax is /{} AMOUNT @USER [DESCRIPTION]'.format(cmd))
+      return False
 
-  if amount > user.balance:
-    print(user)
-    reply("You're balance is {}, you can not send {}.".format(user.balance, amount))
-    return
+    try:
+      amount = db.Decimal(parts[0])
+    except db.decimal.InvalidOperation:
+      reply('The amount you specified is invalid: {!r}'.format(parts[0]))
+      return False
 
-  description = ' '.join(parts[2:])
-  transaction = db.Transaction(amount=amount, receiver=receiver, sender=user,
-    gateway_details=None, description=description)
-  transaction.save()
+    # Find the specified @USER.
+    target_name = parts[1][1:]
+    target = db.User.objects(username__iexact=target_name).first()
+    if not target:
+      reply(
+        "Sorry, I could not find @{}. Maybe they are not using "
+        "@KwittBot, yet?"
+        .format(target_name)
+      )
+      return False
 
-  user.update_balance()
-  receiver.update_balance()
-  reply("You've sent {} to @{}! You're new balance is {}.".format(amount,
-    receiver.username, user.balance))
-  bot.sendMessage(receiver.chat_id, "You just received {} from @{}".format(amount, user.username))
+    if target == g.user and not config['settings']['allowSendToSelf']:
+      reply("Sorry, you can not specify yourself in this command.")
+      return
 
+    description = ' '.join(parts[2:])
+    return (amount, target, description)
 
-def request(bot, update):
-  logging.info('/request %s', update.message.from_user)
+  def do_start(self, bot, update):
+    " Register to @KwittBot. "
 
-  reply = update.message.reply_text
-  user = db.User.objects(telegram_id=update.message.from_user.id).first()
-  if not user:
-    reply("I don't know you.")
-    return
+    chat_action('typing')
+    if g.user:
+      reply("We already got you covered. Type /help when you're stuck!")
+    else:
+      self._setup_account()
 
-  # FIXME: Pretty much the same as in send().
-  parts = update.message.text[8:].strip().split()
-  if len(parts) < 2 or not parts[1].startswith('@'):
-    reply('Invalid syntax')
-    return
-  try:
-    amount = db.Decimal(parts[0])
-  except db.decimal.InvalidOperation:
-    reply('Invalid amount')
-    return
+  def do_send(self, bot, update):
+    " Send money to a friend. "
 
-  target = db.User.objects(username__iexact=parts[1][1:]).first()
-  if not target:
-    reply("We couldn't find @{}, maybe he/she is not using @KwittBot yet?"
-      .format(parts[1][1:]))
-    return
-  elif target == user and not config['settings']['allowSendToSelf']:
-    reply("You can't request money from yourself, fool!")
-    return
+    chat_action('typing')
+    if not g.user:
+      self._setup_account()
 
-  description = ' '.join(parts[2:])
-  request = db.Request(issuer=user, target=target, amount=amount, description=[])
-  if description:
-    request.description.append(description)
+    result = self._parse_send_or_request('send', update.message.text)
+    if not result:
+      return
 
-  request.save()
+    amount, target, description = result
+    if amount > g.user.balance:
+      reply(
+        "Sorry, your balance is {}. You can not send {} to @{}!"
+        .format(g.user.balance, amount, target.username)
+      )
+      return
 
-  bot.sendMessage(target.chat_id, "@{} requested {} from you. You can use "
-    "`/settleup @{}` to pay them!".format(user.username, amount, user.username),
-    parse_mode=ParseMode.MARKDOWN)
-  if description:
-    bot.sendMessage(target.chat_id, "Their message: " + description)
+    # Create a new transaction between the current user and the target.
+    transaction = db.Transaction(
+      amount=amount,
+      receiver=target,
+      sender=g.user,
+      gateway_details=None,
+      description=description
+    )
+    transaction.save()
 
-  reply("You're request has been saved and @{} was notified. They can "
-    "use the command `/settleup @{}` to pay you!".format(target.username, user.username),
-    parse_mode=ParseMode.MARKDOWN)
+    # Update both user's balance.
+    g.user.update_balance()
+    target.update_balance()
 
+    reply(
+      "You have sent {} to @{}. You're new balance is {}."
+      .format(amount, target.username, g.user.balance)
+    )
+    reply(
+      "You just received {} from @{}."
+      .format(amount, g.user.username),
+      chat_id=target.chat_id
+    )
 
-def balance(bot, update):
-  logging.info('/balance %s', update.message.from_user)
+  def do_request(self, bot, update):
+    " Request money from a friend. "
 
-  reply = update.message.reply_text
-  user = db.User.objects(telegram_id=update.message.from_user.id).first()
-  if not user:
-    reply("Sorry, we can't find you in our database! Weird, we currently "
-      "don't support deleting your account.")
-    return
+    chat_action('typing')
+    if not g.user:
+      self._setup_account()
 
-  bot.send_chat_action(chat_id=update.message.chat.id, action=ChatAction.TYPING)
-  user.update_balance()
+    result = self._parse_send_or_request('send', update.message.text)
+    if not result:
+      return
 
-  reply('Your balance is *{}*'.format(user.balance), parse_mode=ParseMode.MARKDOWN)
+    amount, target, description = result
 
+    # Issue a new request to the target user.
+    request = db.Request(
+      issuer=g.user,
+      target=target,
+      amount=amount,
+      description=description,
+      mode=db.Request.Modes.OPEN
+    )
+    request.save()
 
-def transactions(bot, update):
-  logging.info('/transactions %s', update.message.from_user)
+    reply(
+      "You have requested {} from @{}."
+      .format(amount, target.username)
+    )
+    # TODO: InlineKeyboardButton to comply to the request.
+    append = '\nTheir message: "{}"'.format(description) if description else ""
+    reply(
+      ("@{} requested you to send {}." + append)
+      .format(g.user.username, amount, description),
+      chat_id=target.chat_id
+    )
 
-  reply = update.message.reply_text
-  user = db.User.objects(telegram_id=update.message.from_user.id).first()
-  if not user:
-    reply("Sorry, who are you again?")
-    return
+  def do_balance(self, bot, update):
+    " Check your current balance on @KwittBot. "
 
-  lines = ['Here is a list of your transactions:']
+    chat_action('typing')
+    if not g.user:
+      self._setup_account()
 
-  transactions = user.get_transactions()
-  for t in transactions:
-    gain = False
-    if t.receiver == user:
-      gain = True
-      if not t.sender:
-        msg = 'from {}'.format(t.gateway_details.provider)
-      elif t.sender == t.receiver:
-        msg = 'to yourself'
-      else:
-        msg = 'from @{}'.format(t.sender.username)
-    elif t.sender == user:
-      msg = 'to @{}'.format(t.receiver.username)
+    g.user.update_balance()
 
-    msg += ' ({})'.format(t.date.strftime('%Y-%m-%d %H:%M'))
-    lines.append('*{}* '.format(t.amount) + escape_markdown(msg))
+    reply(
+      'Your current balance is *{}*.'.format(g.user.balance),
+      parse_mode=ParseMode.MARKDOWN
+    )
 
-  if not transactions:
-    lines.append('*No transactions*')
+  def do_transactions(self, bot, update):
+    " Show your transaction history. "
 
-  reply('\n'.join(lines), parse_mode=ParseMode.MARKDOWN)
+    chat_action('typing')
+    if not g.user:
+      self._setup_account()
 
+    # TODO: Parse arguments and display transactions accordingly.
 
-def credit(bot, update):
-  logging.info('/balance %s', update.message.from_user)
+    transactions = g.user.get_transactions()
+    if not transactions:
+      reply(
+        "There are no transactions on your account, yet."
+      )
+      return
 
-  reply = update.message.reply_text
-  user = db.User.objects(telegram_id=update.message.from_user.id).first()
-  if not user:
-    reply("Sorry, we can't find you in our database!")
-    return
+    # Build a list of the transactions.
+    lines = [
+      'Showing {} out of {} transactions:'
+      .format(len(transactions), len(transactions))
+    ]
+    for t in transactions:
+      gain = False
+      if t.receiver == g.user:
+        gain = True
+        if not t.sender:
+          msg = 'from {}'.format(t.gateway_details.provider)
+        elif t.sender == t.receiver:
+          msg = 'to yourself'
+        else:
+          msg = 'from @{}'.format(t.sender.username)
+      elif t.sender == g.user:
+        msg = 'to @{}'.format(t.receiver.username)
 
-  amount = update.message.text[7:].strip()
-  try:
-    amount = db.Decimal(amount)
-  except ValueError as exc:
-    reply(str(exc))
-    return
+      msg += ' ({})'.format(t.date.strftime('%Y-%m-%d %H:%M'))
+      lines.append('*{}* '.format(t.amount) + escape_markdown(msg))
 
-  details = db.GatewayTransactionDetails(provider='telegram_dev_command')
-  transaction = db.Transaction(amount=amount, receiver=user, sender=None,
-    gateway_details=details)
+    message = '\n'.join(lines)
+    reply(message, parse_mode=ParseMode.MARKDOWN)
 
-  details.save()
-  transaction.save()
-  user.update_balance()
-  reply("You've been credited *{}*".format(amount), parse_mode=ParseMode.MARKDOWN)
+  def do_credit(self, bot, update):
+    " Charge your account (eg. via PayPal). "
 
+    chat_action('typing')
+    if not g.user:
+      self._setup_account()
 
-def debit(bot, update):
-  pass
+    amount = update.message.text.strip()
+    try:
+      amount = db.Decimal(amount)
+    except db.decimal.InvalidOperation:
+      reply("The amount you entered is invalid: {!r}".format(amount))
+      return
+
+    # Create a new transaction from a payment gateway.
+    details = db.GatewayTransactionDetails(provider='telegram_credit_command')
+
+    # And a new transaction from the gateway to the user.
+    transaction = db.Transaction(
+      amount=amount,
+      receiver=g.user,
+      sender=None,
+      gateway_details=details
+    )
+
+    # FIXME: Two-phase transaction to ensure either both objects are saved
+    #        or none!
+    details.save()
+    transaction.save()
+
+    # Update the users balance/
+    g.user.update_balance()
+    reply(
+      "You've been credited *{}*.".format(amount),
+      parse_mode=ParseMode.MARKDOWN
+    )
+
+  def do_debit(self, bot, update):
+    " Withdraw money from your account. "
+
+    reply("Currently not implemented.")
 
 
 def error(bot, update, error):
@@ -233,15 +290,14 @@ def main():
   logging.basicConfig(format='[%(levelname)s - %(asctime)s]: %(message)s', level=logging.INFO)
   logging.info('Firing up KwittBot ...')
 
+  mwhandler = handlers.MiddlewareHandler()
+  mwhandler.add_handler(KwittbotCommandHandler())
+  mwhandler.add_middleware(LocalMiddleware([g]))
+  mwhandler.add_middleware(UserMiddleware(g, 'user'))
+  mwhandler.add_middleware(UpdateMiddleware(g))
+
   updater = Updater(config['telegramApiToken'])
-  updater.dispatcher.add_handler(CommandHandler('start', start))
-  updater.dispatcher.add_handler(CommandHandler('help', help))
-  updater.dispatcher.add_handler(CommandHandler('send', send))
-  updater.dispatcher.add_handler(CommandHandler('request', request))
-  updater.dispatcher.add_handler(CommandHandler('balance', balance))
-  updater.dispatcher.add_handler(CommandHandler('transactions', transactions))
-  updater.dispatcher.add_handler(CommandHandler('credit', credit))
-  updater.dispatcher.add_handler(CommandHandler('debit', debit))
+  updater.dispatcher.add_handler(mwhandler)
   updater.dispatcher.add_error_handler(error)
   updater.start_polling()
 
