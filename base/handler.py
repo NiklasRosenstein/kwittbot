@@ -34,10 +34,11 @@ class CommandHandler(MessageHandler):
   def do_help(self, bot, update):
     " Show this help. "
 
+    commands = []
     for name, func in self.member_commands():
       line = '/' + name
-      if value.__doc__:
-        line += ' -- ' +  value.__doc__
+      if func.__doc__:
+        line += ' -- ' +  func.__doc__
       commands.append(line)
     commands.sort()
     update.message.reply_text('Available commands:\n' + '\n'.join(commands))

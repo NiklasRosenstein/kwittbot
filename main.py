@@ -50,14 +50,14 @@ class KwittbotCommandHandler(handlers.CommandHandler):
 
   def _setup_account(self):
     # Create a new user.
-    g.user = db.User.from_telegram_user(update.effective_chat, update.effective_user)
+    g.user = db.User.from_telegram_user(g.update.effective_chat, g.update.effective_user)
     g.user.save()
 
     reply(
       "Hi {}! Seems like this is your first time here. You can now use "
       "@KwittBot to send money to your friends or request money from them.\n"
       "Type /help when you're stuck!"
-      .format(update.effective_user.username)
+      .format(g.user.username)
     )
 
   def _parse_send_or_request(self, cmd, text):

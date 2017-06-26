@@ -18,5 +18,12 @@ friends.
 ## Development Status
 
 * Proof of concept: No real money transactions, yet
-* MongoDB and MongoEngine will likely be replaced by another database
+* [ ] MongoDB and MongoEngine will likely be replaced by another database
   (Postgres, Cassandra) and ORM library (SQLAlchemy)
+* [ ] Awareness of currency
+* [ ] Ability to accept or deny requests for money via InlineKeyboard or command
+* [ ] Command to list outstanding requests and to accept, deny or withdraw them
+
+## Example
+
+![](https://i.imgur.com/TPWIiUC.png)
