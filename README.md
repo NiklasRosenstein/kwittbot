@@ -21,7 +21,8 @@ friends.
 * [ ] MongoDB and MongoEngine will likely be replaced by another database
   (Postgres, Cassandra) and ORM library (SQLAlchemy)
 * [ ] Awareness of currency
-* [ ] Ability to accept or deny requests for money via InlineKeyboard or command
+* [x] Ability to accept or deny requests for money via InlineKeyboard or command
+* [ ] Implement sending of money on the Request "Send" button
 * [ ] Command to list outstanding requests and to accept, deny or withdraw them
 
 ## Example
