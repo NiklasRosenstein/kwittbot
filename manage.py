@@ -1,7 +1,7 @@
 
 import click
 import db from './db'
-import {KwittbotCommandHandler} from './main'
+import {app} from './main'
 
 
 @click.group()
@@ -30,8 +30,8 @@ def drop(users):
 
 @main.command('format-command-list')
 def format_command_list():
-  for name, func in KwittbotCommandHandler().member_commands():
-    line = name + ' - ' + (func.__doc__ or '')
+  for cmd in app.commands.values():
+    line = cmd.name + ' - ' + cmd.help
     print(line)
 
 
