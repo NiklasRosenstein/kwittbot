@@ -205,7 +205,7 @@ class Application(Handler):
     return func
 
   def callback_query(self, func):
-    self.callback_query = func
+    self.callback_query_handler = func
     return func
 
   def channel_post(self, func):
