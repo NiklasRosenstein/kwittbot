@@ -21,7 +21,10 @@ import {
 
 # Our chatbot :3
 app = Application('KwittBot', debug=True)
-user = g('user')
+
+# We don't use a proxy for the user object yet, because MongoEngine has
+# trouble processing it!
+#user = g('user')
 
 
 def requires_user(func):
@@ -79,10 +82,10 @@ def send():
     return
 
   amount, target, description = result
-  if amount > user.balance:
+  if amount > g.user.balance:
     reply_text(
       "Sorry, your balance is {}. You can not send {} to @{}!"
-      .format(user.balance, amount, target.username)
+      .format(g.user.balance, amount, target.username)
     )
     return
 
@@ -97,7 +100,7 @@ def send():
   transaction.save()
 
   # Update both user's balance.
-  user.update_balance()
+  g.user.update_balance()
   target.update_balance()
 
   reply_text(
@@ -140,8 +143,8 @@ def request():
   # Buttons to answer the request.
   markup = InlineKeyboardMarkup([
     [
-      InlineKeyboardButton('Send {}'.format(amount), callback_data='send'),
-      InlineKeyboardButton('Reject', callback_data='reject'),
+      InlineKeyboardButton('Send {}'.format(amount), callback_data='send:' + str(request.id)),
+      InlineKeyboardButton('Reject', callback_data='reject:' + str(request.id)),
     ]
   ])
 
@@ -149,7 +152,7 @@ def request():
   their_msg = '\nTheir message: "{}"'.format(description) if description else ""
   reply_text(
     ("@{} requested you to send {}." + their_msg)
-    .format(user.username, amount, description),
+    .format(g.user.username, amount, description),
     chat_id=target.chat_id,
     reply_markup=markup
   )
@@ -161,13 +164,10 @@ def balance():
   " Check your current balance on @KwittBot. "
 
   chat_action('typing')
-  if not user:
-    self._setup_account()
-
-  user.update_balance()
+  g.user.update_balance()
 
   reply_text(
-    'Your current balance is *{}*.'.format(user.balance),
+    'Your current balance is *{}*.'.format(g.user.balance),
     parse_mode=ParseMode.MARKDOWN
   )
 
@@ -178,12 +178,10 @@ def transactions():
   " Show your transaction history. "
 
   chat_action('typing')
-  if not user:
-    self._setup_account()
 
   # TODO: Parse arguments and display transactions accordingly.
 
-  transactions = user.get_transactions()
+  transactions = g.user.get_transactions()
   if not transactions:
     reply_text(
       "There are no transactions on your account, yet."
@@ -197,7 +195,7 @@ def transactions():
   ]
   for t in transactions:
     gain = False
-    if t.receiver == user:
+    if t.receiver == g.user:
       gain = True
       if not t.sender:
         msg = 'from {}'.format(t.gateway_details.provider)
@@ -205,7 +203,7 @@ def transactions():
         msg = 'to yourself'
       else:
         msg = 'from @{}'.format(t.sender.username)
-    elif t.sender == user:
+    elif t.sender == g.user:
       msg = 'to @{}'.format(t.receiver.username)
 
     msg += ' ({})'.format(t.date.strftime('%Y-%m-%d %H:%M'))
@@ -221,9 +219,6 @@ def credit():
   " Charge your account (eg. via PayPal). "
 
   chat_action('typing')
-  if not user:
-    self._setup_account()
-
   amount = command.text.strip()
   try:
     amount = db.Decimal(amount)
@@ -248,7 +243,7 @@ def credit():
   transaction.save()
 
   # Update the users balance/
-  user.update_balance()
+  g.user.update_balance()
   reply_text(
     "You've been credited *{}*.".format(amount),
     parse_mode=ParseMode.MARKDOWN
@@ -265,14 +260,14 @@ def debit():
 
 def register_user():
   # Create a new user.
-  user = db.User.from_telegram_user(g.update.effective_chat, g.update.effective_user)
-  user.save()
+  g.user = db.User.from_telegram_user(g.update.effective_chat, g.update.effective_user)
+  g.user.save()
 
   reply_text(
     "Hi {}! Seems like this is your first time here. You can now use "
     "@KwittBot to send money to your friends or request money from them.\n"
     "Type /help when you're stuck!"
-    .format(user.username)
+    .format(g.user.username)
   )
 
 
@@ -307,7 +302,7 @@ def parse_send_or_request(cmd, text):
     )
     return False
 
-  if target == user and not config['settings']['allowSendToSelf']:
+  if target == g.user and not config['settings']['allowSendToSelf']:
     reply_text("Sorry, you can not specify yourself in this command.")
     return
 
