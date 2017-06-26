@@ -1,6 +1,7 @@
 
 import click
 import db from './db'
+import {KwittbotCommandHandler} from './main'
 
 
 @click.group()
@@ -25,6 +26,13 @@ def drop(users):
 
   print('Dropping Request ...')
   db.Request.drop_collection()
+
+
+@main.command('format-command-list')
+def format_command_list():
+  for name, func in KwittbotCommandHandler().member_commands():
+    line = name + ' - ' + (func.__doc__ or '')
+    print(line)
 
 
 if require.main == module:

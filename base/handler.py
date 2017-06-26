@@ -34,17 +34,20 @@ class CommandHandler(MessageHandler):
   def do_help(self, bot, update):
     " Show this help. "
 
-    commands = []
+    for name, func in self.member_commands():
+      line = '/' + name
+      if value.__doc__:
+        line += ' -- ' +  value.__doc__
+      commands.append(line)
+    commands.sort()
+    update.message.reply_text('Available commands:\n' + '\n'.join(commands))
+
+  def member_commands(self):
     for key in dir(self):
       if not key.startswith('do_'): continue
       value = getattr(self, key)
       if not callable(value): continue
-      line = '/' + key[3:]
-      if value.__doc__:
-        line += value.__doc__
-      commands.append(line)
-    commands.sort()
-    update.message.reply_text('Available commands:\n' + '\n'.join(commands))
+      yield key[3:], value
 
 
 class MiddlewareHandler(Handler):
