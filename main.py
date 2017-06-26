@@ -258,6 +258,49 @@ def debit():
   reply_text("Currently not implemented.")
 
 
+@app.callback_query
+def callback_data():
+  query = update.callback_query
+  data = query.data
+  if data.startswith('send:') or data.startswith('reject:'):
+    request_id = data.partition(':')[2]
+    request = db.Request.objects(id=request_id).first()
+    if not request:
+      reply_text('Error: Request "{}" does not exist.'.format(request_id))
+      return
+
+    if request.target != g.user:
+      # That's a security issue. Ideally, other users wouldn't be able
+      # to find out the ID of a request targeting a different user.
+      app.logger.warning('User @%s (id: %s) was trying to answer request '
+        '%s which is actually targeted to @%s (id: %s)', g.user.username,
+        g.user.telegram_id, request.id, request.target.username,
+        request.target.telegram_id)
+
+      reply_text("Wait wait wait, that's not your money request! What are you doing here?!")
+      return
+
+    if request.mode != request.Modes.OPEN:
+      reply_text("The request is not open anymore.")
+      return
+
+    # TODO:
+    if data.startswith('send:'):
+      reply_text('TODO: Implement sending a request (I marked it '
+        'as fulfilled nevertheless)')
+      request.mode = request.Modes.FULFILLED
+      request.save()
+    else:
+      reply_text("You rejected the request.")
+      request.mode = request.Modes.REJECTED
+      request.save()
+      reply_text(
+        "@{} rejected your request for {}."
+        .format(g.user.username, request.amount),
+        chat_id=request.issuer.chat_id
+      )
+
+
 def register_user():
   # Create a new user.
   g.user = db.User.from_telegram_user(g.update.effective_chat, g.update.effective_user)

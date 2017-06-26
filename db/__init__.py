@@ -152,7 +152,7 @@ class Request(Document):
 
   class Modes(enum.Enum):
     OPEN = 1
-    DENIED = 2
+    REJECTED = 2
     FULFILLED = 3
 
   #: The amount of money being requested.
@@ -170,7 +170,7 @@ class Request(Document):
   #: A message for the request.
   description = StringField()
 
-  #: Whether the request is still open, has been fulfilled or denied.
+  #: Whether the request is still open, has been fulfilled or rejected.
   mode = EnumField(Modes)
 
   def clean(self):
